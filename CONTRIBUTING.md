@@ -5,15 +5,15 @@ Thanks for taking the time. Bug reports, translations and pull requests are all 
 ## Development setup
 
 ```bash
-git clone https://github.com/manch1915/vestige-bot.git
-cd vestige-bot
+git clone https://github.com/Rosu315/tg-logging-bot.git
+cd tg-logging-bot
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env           # then put your token in
 ```
 
-Run the bot with `python -m vestige`.
+Run the bot with `python -m tg_logging_bot`.
 
 ## Before opening a pull request
 
@@ -32,13 +32,13 @@ CI runs the same four commands on Python 3.10, 3.11 and 3.12.
   `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`.
 - Handlers stay thin — put logic in `capture.py`, `storage.py` or `render.py` so it can
   be tested without a Telegram connection.
-- New user-facing strings go into **both** `RU` and `EN` in `src/vestige/texts.py`.
+- New user-facing strings go into **both** `RU` and `EN` in `src/tg_logging_bot/texts.py`.
 - A new preference needs an entry in `PREF_KEYS`, a column in the `prefs` table and a
   `pref_<key>` string in both locales.
 
 ## Adding a language
 
-Copy the `EN` dictionary in `src/vestige/texts.py`, translate the values, register it in
+Copy the `EN` dictionary in `src/tg_logging_bot/texts.py`, translate the values, register it in
 `LANGUAGES`. The language button in `/settings` cycles through everything registered there.
 
 ## Reporting bugs

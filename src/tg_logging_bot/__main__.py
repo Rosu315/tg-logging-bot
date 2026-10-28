@@ -20,7 +20,7 @@ from .middlewares import DependenciesMiddleware
 from .storage import Storage
 from .web import run_web
 
-log = logging.getLogger("vestige")
+log = logging.getLogger("tg_logging_bot")
 
 COMMANDS = [
     BotCommand(command="start", description="Как подключить бота"),

@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from vestige.storage import Connection, Snapshot, Storage
+from tg_logging_bot.storage import Connection, Snapshot, Storage
 
 
 def make_snapshot(message_id: int = 1, **overrides) -> Snapshot:

@@ -29,7 +29,7 @@ from .render import MEDIA_NAMES, esc
 from .storage import Snapshot, Storage
 from .tokens import verify_token
 
-log = logging.getLogger("vestige.web")
+log = logging.getLogger("tg_logging_bot.web")
 
 PAGE_LIMIT = 200
 
@@ -209,7 +209,7 @@ a { color: #3390ec; text-decoration: none; }
 EXPIRED_PAGE = (
     "<!doctype html><html><head><meta charset='utf-8'>"
     "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-    f"<title>Vestige backup</title><style>{STYLE}</style></head>"
+    f"<title>TG Logging Bot — Backup</title><style>{STYLE}</style></head>"
     "<body><div class='wrap'><div class='empty'>"
     "🔒 Ссылка недействительна или истекла.<br>Откройте /backup в боте ещё раз.<br><br>"
     "🔒 This link is invalid or has expired.<br>Open /backup in the bot again."
@@ -257,11 +257,11 @@ def render_chat_list(chats: list[dict], token: str) -> str:
         rows = "<div class='chat-list'>" + "".join(items) + "</div>"
 
     body = (
-        "<div class='topbar'><div class='title'>📦 Бэкап Vestige</div></div>"
+        "<div class='topbar'><div class='title'>📦 Бэкап</div></div>"
         f"{rows}"
         "<div class='footer-note'>Снимки хранятся 14 дней — это рабочий архив, не постоянный.</div>"
     )
-    return _page("Vestige backup", body)
+    return _page("TG Logging Bot — Backup", body)
 
 
 def render_chat(

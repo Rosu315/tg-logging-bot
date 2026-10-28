@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-from vestige.storage import Connection, Storage
+from tg_logging_bot.storage import Connection, Storage
 
 
 @pytest_asyncio.fixture

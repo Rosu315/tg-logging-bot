@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 from aiogram.types import Chat, Message, User
 
-from vestige.render import chat_title, deleted_card, edited_card, once_card, user_title
-from vestige.storage import Snapshot
+from tg_logging_bot.render import chat_title, deleted_card, edited_card, once_card, user_title
+from tg_logging_bot.storage import Snapshot
 
 CHAT = Chat(id=100, type="private", first_name="Полина")
 NOW = datetime.now(tz=timezone.utc)

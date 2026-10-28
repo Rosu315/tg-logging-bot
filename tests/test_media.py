@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from aiogram.types import Chat, Message, PhotoSize, Voice
 
-from vestige.media import extract_media, is_one_time
+from tg_logging_bot.media import extract_media, is_one_time
 
 CHAT = Chat(id=100, type="private", first_name="Полина")
 NOW = datetime.now(tz=timezone.utc)

@@ -25,7 +25,7 @@ class Settings(BaseSettings):
                     "directly.",
     )
 
-    db_path: Path = Field(Path("data/vestige.db"), alias="DB_PATH")
+    db_path: Path = Field(Path("data/bot.db"), alias="DB_PATH")
     media_dir: Path = Field(Path("data/media"), alias="MEDIA_DIR")
 
     cache_media: bool = Field(False, alias="CACHE_MEDIA")

@@ -12,10 +12,10 @@ RUN pip install --no-cache-dir .
 
 # Snapshots and cached media live here; mount a volume to keep them.
 VOLUME ["/app/data"]
-ENV DB_PATH=/app/data/vestige.db \
+ENV DB_PATH=/app/data/bot.db \
     MEDIA_DIR=/app/data/media
 
-RUN useradd --create-home --uid 1000 vestige && chown -R vestige:vestige /app
-USER vestige
+RUN useradd --create-home --uid 1000 botuser && chown -R botuser:botuser /app
+USER botuser
 
-CMD ["python", "-m", "vestige"]
+CMD ["python", "-m", "tg_logging_bot"]

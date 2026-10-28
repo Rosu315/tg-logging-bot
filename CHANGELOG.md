@@ -6,9 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Fork of [Vestige](https://github.com/manch1915/vestige-bot) v0.1.0, renamed to
+TG Logging Bot. Everything below this point is specific to the fork; [0.1.0](#010--2026-09-10)
+and its links are the upstream project's own history.
+
+### Added
+
+- `/backup`: a short-lived signed link into a read-only web viewer (aiohttp, same
+  process) rendering the snapshot archive as a scrollable chat.
+- Deletions are flagged (`deleted_at`) instead of discarded, and edits keep the previous
+  text (`prev_text`) — both now show up, marked, in the web viewer.
+- A `peers` table tracks each chat's display title from `message.chat` on every capture,
+  fixing chats where the owner had only ever sent (never received).
+
+### Fixed
+
+- View-once rescue: Telegram doesn't deliver that content as its own `business_message`
+  update, and the reply's embedded copy carries a placeholder `message_id`, not the real
+  one. The rescued file is now matched by `file_unique_id`, with a from-scratch insert as
+  a last resort when no prior snapshot exists at all.
+
 ## [0.1.0] — 2026-09-10
 
-First release.
+First release (upstream, manch1915/vestige-bot).
 
 ### Added
 

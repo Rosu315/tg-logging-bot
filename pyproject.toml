@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "vestige-bot"
+name = "tg-logging-bot"
 version = "0.1.0"
-description = "Telegram Business bot that keeps the traces of deleted, edited and view-once messages"
+description = "Telegram Business bot that keeps the traces of deleted, edited and view-once messages, with a web backup viewer. Fork of Vestige (manch1915/vestige-bot)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "manch1915" }]
+authors = [{ name = "manch1915" }, { name = "Rosu315" }]
 keywords = ["telegram", "bot", "aiogram", "telegram-business", "business-connection"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -36,15 +36,16 @@ dev = [
 ]
 
 [project.scripts]
-vestige-bot = "vestige.__main__:run"
+tg-logging-bot = "tg_logging_bot.__main__:run"
 
 [project.urls]
-Homepage = "https://github.com/manch1915/vestige-bot"
-Issues = "https://github.com/manch1915/vestige-bot/issues"
-Changelog = "https://github.com/manch1915/vestige-bot/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/Rosu315/tg-logging-bot"
+Issues = "https://github.com/Rosu315/tg-logging-bot/issues"
+Changelog = "https://github.com/Rosu315/tg-logging-bot/blob/main/CHANGELOG.md"
+Upstream = "https://github.com/manch1915/vestige-bot"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vestige"]
+packages = ["src/tg_logging_bot"]
 
 [tool.ruff]
 line-length = 100
@@ -71,6 +72,6 @@ pythonpath = ["src"]
 
 [tool.mypy]
 python_version = "3.10"
-packages = ["vestige"]
+packages = ["tg_logging_bot"]
 mypy_path = "src"
 ignore_missing_imports = true

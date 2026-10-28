@@ -8,7 +8,7 @@ DEFAULT_LANGUAGE = "ru"
 
 RU: dict[str, str] = {
     "start": (
-        "<b>Vestige</b> — хранитель следов.\n\n"
+        "<b>TG Logging Bot</b> — хранитель следов.\n\n"
         "Я подключаюсь к вашему аккаунту как чат-бот и сохраняю то, что исчезает:\n"
         "• 🗑 <b>удалённые сообщения</b> — пришлю копию сразу после удаления;\n"
         "• ✏️ <b>изменённые сообщения</b> — покажу старую и новую версию;\n"
@@ -97,7 +97,7 @@ RU: dict[str, str] = {
 
 EN: dict[str, str] = {
     "start": (
-        "<b>Vestige</b> — the keeper of traces.\n\n"
+        "<b>TG Logging Bot</b> — the keeper of traces.\n\n"
         "I connect to your account as a chatbot and save what disappears:\n"
         "• 🗑 <b>deleted messages</b> — a copy arrives the moment they are gone;\n"
         "• ✏️ <b>edited messages</b> — you get both the old and the new version;\n"
