@@ -83,6 +83,16 @@ RU: dict[str, str] = {
     ),
     "purged": "🧹 Удалено снимков: {count}.",
     "not_connected": ("Бот ещё не подключён к вашему аккаунту. Как это сделать — /start"),
+    "backup_intro": (
+        "📦 <b>Бэкап</b>\n\n"
+        "Ссылка ниже открывает архив сохранённых сообщений — как бэкап Telegram, "
+        "только это текущий слепок того, что я вижу через подключение.\n\n"
+        "Действительна {minutes} минут. Нужна новая — просто нажмите /backup ещё раз."
+    ),
+    "backup_button": "🌐 Открыть бэкап",
+    "backup_not_configured": (
+        "⚠️ Веб-бэкап не настроен: владельцу бота нужно задать BACKUP_PUBLIC_URL в .env."
+    ),
 }
 
 EN: dict[str, str] = {
@@ -162,6 +172,18 @@ EN: dict[str, str] = {
     ),
     "purged": "🧹 Snapshots removed: {count}.",
     "not_connected": "The bot is not connected to your account yet. See /start",
+    "backup_intro": (
+        "📦 <b>Backup</b>\n\n"
+        "The link below opens the archive of saved messages — like a Telegram "
+        "backup, except it's a live snapshot of what I can see through the "
+        "connection.\n\n"
+        "Valid for {minutes} minutes. Need a new one — just tap /backup again."
+    ),
+    "backup_button": "🌐 Open backup",
+    "backup_not_configured": (
+        "⚠️ The web backup isn't configured: the bot's owner needs to set "
+        "BACKUP_PUBLIC_URL in .env."
+    ),
 }
 
 LANGUAGES: dict[str, dict[str, str]] = {"ru": RU, "en": EN}

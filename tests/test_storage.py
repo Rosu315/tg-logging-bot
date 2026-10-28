@@ -62,17 +62,68 @@ async def test_snapshot_upsert_keeps_cached_file(storage: Storage) -> None:
     assert stored.file_path == "/tmp/a.jpg"
 
 
-async def test_pop_snapshots_returns_and_forgets(storage: Storage) -> None:
+async def test_mark_deleted_returns_predeletion_content_and_flags_rows(storage: Storage) -> None:
     await storage.put_snapshot(make_snapshot(1))
     await storage.put_snapshot(make_snapshot(2))
 
-    popped = await storage.pop_snapshots("conn-1", 100, [1, 2, 3])
-    assert [s.message_id for s in popped] == [1, 2]
-    assert await storage.pop_snapshots("conn-1", 100, [1, 2]) == []
+    marked = await storage.mark_deleted("conn-1", 100, [1, 2, 3])
+    assert [s.message_id for s in marked] == [1, 2]
+    assert all(s.deleted_at is None for s in marked)  # pre-deletion snapshot, as before
+
+    stored = await storage.get_snapshot("conn-1", 100, 1)
+    assert stored is not None
+    assert stored.deleted_at is not None
+    assert stored.text == "любое сообщение"  # content stays, just flagged
 
 
-async def test_pop_snapshots_without_ids(storage: Storage) -> None:
-    assert await storage.pop_snapshots("conn-1", 100, []) == []
+async def test_mark_deleted_without_ids(storage: Storage) -> None:
+    assert await storage.mark_deleted("conn-1", 100, []) == []
+
+
+async def test_set_snapshot_file_path_patches_existing_row(storage: Storage) -> None:
+    await storage.put_snapshot(make_snapshot(1, media_type="photo"))
+    affected = await storage.set_snapshot_file_path("conn-1", 100, 1, "/tmp/rescued.jpg")
+    assert affected == 1
+
+    stored = await storage.get_snapshot("conn-1", 100, 1)
+    assert stored is not None
+    assert stored.file_path == "/tmp/rescued.jpg"
+
+
+async def test_set_snapshot_file_path_mismatched_id_is_a_silent_no_op(storage: Storage) -> None:
+    await storage.put_snapshot(make_snapshot(1, media_type="photo"))
+    affected = await storage.set_snapshot_file_path("conn-1", 100, 999, "/tmp/rescued.jpg")
+    assert affected == 0
+
+    stored = await storage.get_snapshot("conn-1", 100, 1)
+    assert stored is not None
+    assert stored.file_path is None
+
+
+async def test_set_file_path_by_unique_id_ignores_mismatched_message_id(storage: Storage) -> None:
+    # Simulates the view-once quirk: the real snapshot sits under message_id
+    # 1, but the rescue only has a (correct) file_unique_id to go on.
+    await storage.put_snapshot(
+        make_snapshot(1, media_type="photo", file_unique_id="uniq-1")
+    )
+    affected = await storage.set_file_path_by_unique_id(
+        "conn-1", 100, "uniq-1", "/tmp/rescued.jpg"
+    )
+    assert affected == 1
+
+    stored = await storage.get_snapshot("conn-1", 100, 1)
+    assert stored is not None
+    assert stored.file_path == "/tmp/rescued.jpg"
+
+
+async def test_peer_title_prefers_peers_table_over_legacy_fallback(storage: Storage) -> None:
+    # No peers row yet, and the chat has only outgoing messages: falls back
+    # to the generic label rather than the owner's own name.
+    await storage.put_snapshot(make_snapshot(1, is_outgoing=True, sender_name="Me"))
+    assert await storage.peer_title(42, "conn-1", 100) == "Chat 100"
+
+    await storage.upsert_peer("conn-1", 100, "Полина (@polina)")
+    assert await storage.peer_title(42, "conn-1", 100) == "Полина (@polina)"
 
 
 async def test_purge_older_than_returns_cached_paths(storage: Storage) -> None:

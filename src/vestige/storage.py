@@ -9,6 +9,7 @@ passed through the connection, which is what this module is for.
 from __future__ import annotations
 
 import json
+import secrets
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -67,10 +68,22 @@ CREATE TABLE IF NOT EXISTS snapshots (
     file_unique_id  TEXT,
     file_path       TEXT,
     extra           TEXT,
+    prev_text       TEXT,
+    edited_at       INTEGER,
+    deleted_at      INTEGER,
+    is_view_once    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (connection_id, chat_id, message_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_saved_at ON snapshots(saved_at);
+
+CREATE TABLE IF NOT EXISTS peers (
+    connection_id   TEXT NOT NULL,
+    chat_id         INTEGER NOT NULL,
+    title           TEXT NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    PRIMARY KEY (connection_id, chat_id)
+);
 """
 
 PREF_KEYS = (
@@ -122,6 +135,10 @@ class Snapshot:
     file_path: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
     saved_at: int = 0
+    prev_text: str | None = None
+    edited_at: int | None = None
+    deleted_at: int | None = None
+    is_view_once: bool = False
 
     @property
     def has_content(self) -> bool:
@@ -141,10 +158,17 @@ class Storage:
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.execute("PRAGMA foreign_keys=ON")
         await self._db.executescript(SCHEMA)
-        try:
-            await self._db.execute("ALTER TABLE connections ADD COLUMN owner_username TEXT")
-        except aiosqlite.OperationalError:
-            pass  # already migrated
+        for ddl in (
+            "ALTER TABLE connections ADD COLUMN owner_username TEXT",
+            "ALTER TABLE snapshots ADD COLUMN prev_text TEXT",
+            "ALTER TABLE snapshots ADD COLUMN edited_at INTEGER",
+            "ALTER TABLE snapshots ADD COLUMN deleted_at INTEGER",
+            "ALTER TABLE snapshots ADD COLUMN is_view_once INTEGER NOT NULL DEFAULT 0",
+        ):
+            try:
+                await self._db.execute(ddl)
+            except aiosqlite.OperationalError:
+                pass  # already migrated
         await self._db.commit()
 
     async def close(self) -> None:
@@ -319,13 +343,18 @@ class Storage:
     # ------------------------------------------------------------------- snapshots
 
     async def put_snapshot(self, snapshot: Snapshot) -> None:
+        # is_view_once is intentionally absent from DO UPDATE SET: it's set
+        # once, either here on first insert (the rescue-built-from-scratch
+        # case) or via the set_*_file_path methods below, and must survive
+        # any later re-capture (an edit, say) untouched.
         await self.db.execute(
             """
             INSERT INTO snapshots
                 (connection_id, chat_id, message_id, owner_id, sender_id, sender_name,
                  is_outgoing, sent_at, saved_at, text, entities, media_type,
-                 file_id, file_unique_id, file_path, extra)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 file_id, file_unique_id, file_path, extra, prev_text, edited_at,
+                 is_view_once)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(connection_id, chat_id, message_id) DO UPDATE SET
                 text = excluded.text,
                 entities = excluded.entities,
@@ -334,7 +363,9 @@ class Storage:
                 file_unique_id = excluded.file_unique_id,
                 file_path = COALESCE(excluded.file_path, snapshots.file_path),
                 extra = excluded.extra,
-                saved_at = excluded.saved_at
+                saved_at = excluded.saved_at,
+                prev_text = excluded.prev_text,
+                edited_at = excluded.edited_at
             """,
             (
                 snapshot.connection_id,
@@ -353,9 +384,50 @@ class Storage:
                 snapshot.file_unique_id,
                 snapshot.file_path,
                 json.dumps(snapshot.extra, ensure_ascii=False) if snapshot.extra else None,
+                snapshot.prev_text,
+                snapshot.edited_at,
+                int(snapshot.is_view_once),
             ),
         )
         await self.db.commit()
+
+    async def set_snapshot_file_path(
+        self, connection_id: str, chat_id: int, message_id: int, file_path: str
+    ) -> int:
+        """Attach a locally-cached copy to an already-stored snapshot.
+
+        Used for rescued view-once media: the file is pulled to disk the
+        moment the owner replies to it, after the snapshot row already
+        exists, so the rescue has to patch the row rather than insert one.
+        Returns the number of rows actually updated (0 or 1), so the caller
+        can tell a real patch apart from a silent no-op on a mismatched id.
+        """
+        cursor = await self.db.execute(
+            "UPDATE snapshots SET file_path = ?, is_view_once = 1 "
+            "WHERE connection_id = ? AND chat_id = ? AND message_id = ?",
+            (file_path, connection_id, chat_id, message_id),
+        )
+        await self.db.commit()
+        return cursor.rowcount
+
+    async def set_file_path_by_unique_id(
+        self, connection_id: str, chat_id: int, file_unique_id: str, file_path: str
+    ) -> int:
+        """Like ``set_snapshot_file_path``, but keyed by ``file_unique_id``.
+
+        For view-once media, Telegram's embedded ``reply_to_message`` carries
+        a ``message_id`` that does *not* match the id the original snapshot
+        was actually stored under (apparently a placeholder, not the real
+        one) — but ``file_unique_id``, derived from the file itself, still
+        does. This is the reliable way to find that row again.
+        """
+        cursor = await self.db.execute(
+            "UPDATE snapshots SET file_path = ?, is_view_once = 1 "
+            "WHERE connection_id = ? AND chat_id = ? AND file_unique_id = ?",
+            (file_path, connection_id, chat_id, file_unique_id),
+        )
+        await self.db.commit()
+        return cursor.rowcount
 
     async def get_snapshot(
         self, connection_id: str, chat_id: int, message_id: int
@@ -370,13 +442,16 @@ class Storage:
             row = await cursor.fetchone()
         return _row_to_snapshot(row) if row is not None else None
 
-    async def pop_snapshots(
+    async def mark_deleted(
         self, connection_id: str, chat_id: int, message_ids: list[int]
     ) -> list[Snapshot]:
-        """Read snapshots for the given ids and forget them.
+        """Flag snapshots as deleted instead of discarding them.
 
-        Deleted messages are handed to the owner exactly once; keeping them any
-        longer only grows the database.
+        The deletion alert still goes out exactly once (callers get the
+        pre-deletion content back, same as before), but the row now stays in
+        the archive — flagged — so the backup viewer can show what was
+        removed instead of it just vanishing. The 14-day janitor still
+        reclaims it eventually, same as any other snapshot.
         """
         if not message_ids:
             return []
@@ -393,10 +468,10 @@ class Storage:
             rows = await cursor.fetchall()
         await self.db.execute(
             f"""
-            DELETE FROM snapshots
+            UPDATE snapshots SET deleted_at = ?
             WHERE connection_id = ? AND chat_id = ? AND message_id IN ({placeholders})
             """,
-            params,
+            [int(time.time()), *params],
         )
         await self.db.commit()
         return [_row_to_snapshot(row) for row in rows]
@@ -418,6 +493,143 @@ class Storage:
         cursor = await self.db.execute("DELETE FROM snapshots WHERE owner_id = ?", (owner_id,))
         await self.db.commit()
         return cursor.rowcount if cursor.rowcount > 0 else 0
+
+    # --------------------------------------------------------------- web backup
+
+    async def get_or_create_web_secret(self) -> str:
+        """The HMAC key backup links are signed with, generated once and kept
+        in ``meta`` so it survives restarts without touching ``.env``."""
+        async with self.db.execute(
+            "SELECT value FROM meta WHERE key = 'web_secret'"
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is not None:
+            return row["value"]
+        await self.db.execute(
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('web_secret', ?)",
+            (secrets.token_hex(32),),
+        )
+        await self.db.commit()
+        async with self.db.execute(
+            "SELECT value FROM meta WHERE key = 'web_secret'"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None  # just inserted (or raced with another writer inserting it)
+        return row["value"]
+
+    async def list_chats_for_owner(self, owner_id: int) -> list[dict[str, Any]]:
+        """One row per (connection, chat) the owner has captured snapshots for,
+        newest activity first — the chat list of the backup viewer."""
+        async with self.db.execute(
+            """
+            SELECT connection_id, chat_id, MAX(sent_at) AS last_sent_at, COUNT(*) AS n
+            FROM snapshots
+            WHERE owner_id = ?
+            GROUP BY connection_id, chat_id
+            ORDER BY last_sent_at DESC
+            """,
+            (owner_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        chats = []
+        for row in rows:
+            chats.append(
+                {
+                    "connection_id": row["connection_id"],
+                    "chat_id": row["chat_id"],
+                    "last_sent_at": row["last_sent_at"],
+                    "count": row["n"],
+                    "title": await self.peer_title(owner_id, row["connection_id"], row["chat_id"]),
+                }
+            )
+        return chats
+
+    async def upsert_peer(self, connection_id: str, chat_id: int, title: str) -> None:
+        """Remember the chat's display title, refreshed on every capture.
+
+        ``message.chat`` identifies the *other* side of a business
+        connection regardless of who sent the message, unlike
+        ``sender_name`` (which is the owner's own name on outgoing
+        messages) — so this works even for chats where the owner has only
+        ever sent, never received.
+        """
+        await self.db.execute(
+            """
+            INSERT INTO peers (connection_id, chat_id, title, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(connection_id, chat_id) DO UPDATE SET
+                title = excluded.title,
+                updated_at = excluded.updated_at
+            """,
+            (connection_id, chat_id, title, int(time.time())),
+        )
+        await self.db.commit()
+
+    async def peer_title(self, owner_id: int, connection_id: str, chat_id: int) -> str:
+        async with self.db.execute(
+            "SELECT title FROM peers WHERE connection_id = ? AND chat_id = ?",
+            (connection_id, chat_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row and row["title"]:
+            return row["title"]
+
+        # Legacy fallback for chats captured before the peers table existed:
+        # the sender name on the other side's most recent message.
+        async with self.db.execute(
+            """
+            SELECT sender_name FROM snapshots
+            WHERE owner_id = ? AND connection_id = ? AND chat_id = ? AND is_outgoing = 0
+            ORDER BY sent_at DESC LIMIT 1
+            """,
+            (owner_id, connection_id, chat_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row and row["sender_name"]:
+            return row["sender_name"]
+        return f"Chat {chat_id}"
+
+    async def list_snapshots_for_chat(
+        self,
+        owner_id: int,
+        connection_id: str,
+        chat_id: int,
+        *,
+        before: int | None = None,
+        limit: int = 200,
+    ) -> list[Snapshot]:
+        """Snapshots in chronological order, most recent ``limit`` ending at
+        ``before`` (exclusive) — or the latest ``limit`` when ``before`` is None."""
+        if before is not None:
+            query = (
+                "SELECT * FROM snapshots "
+                "WHERE owner_id = ? AND connection_id = ? AND chat_id = ? AND sent_at < ? "
+                "ORDER BY sent_at DESC LIMIT ?"
+            )
+            params: tuple[Any, ...] = (owner_id, connection_id, chat_id, before, limit)
+        else:
+            query = (
+                "SELECT * FROM snapshots "
+                "WHERE owner_id = ? AND connection_id = ? AND chat_id = ? "
+                "ORDER BY sent_at DESC LIMIT ?"
+            )
+            params = (owner_id, connection_id, chat_id, limit)
+        async with self.db.execute(query, params) as cursor:
+            rows = list(await cursor.fetchall())
+        return [_row_to_snapshot(row) for row in reversed(rows)]
+
+    async def get_snapshot_for_owner(
+        self, owner_id: int, connection_id: str, chat_id: int, message_id: int
+    ) -> Snapshot | None:
+        async with self.db.execute(
+            """
+            SELECT * FROM snapshots
+            WHERE owner_id = ? AND connection_id = ? AND chat_id = ? AND message_id = ?
+            """,
+            (owner_id, connection_id, chat_id, message_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return _row_to_snapshot(row) if row is not None else None
 
     async def stats(self, owner_id: int) -> dict[str, int]:
         async with self.db.execute(
@@ -451,4 +663,8 @@ def _row_to_snapshot(row: aiosqlite.Row) -> Snapshot:
         file_unique_id=row["file_unique_id"],
         file_path=row["file_path"],
         extra=json.loads(row["extra"]) if row["extra"] else {},
+        prev_text=row["prev_text"],
+        edited_at=row["edited_at"],
+        deleted_at=row["deleted_at"],
+        is_view_once=bool(row["is_view_once"]),
     )

@@ -15,7 +15,7 @@ import logging
 from aiogram import Bot, Router
 from aiogram.types import BusinessConnection, BusinessMessagesDeleted, Message
 
-from ..capture import capture_message
+from ..capture import build_snapshot, capture_edit, capture_message
 from ..config import Settings
 from ..media import cache_to_disk, extract_media, is_one_time, send_media
 from ..render import chat_title, deleted_card, edited_card, once_card
@@ -91,7 +91,7 @@ async def on_edited_business_message(
     old = await storage.get_snapshot(connection.connection_id, message.chat.id, message.message_id)
     # Re-snapshot first: even if the owner muted edit alerts, a later deletion
     # should show the newest text.
-    await capture_message(bot, storage, settings, message, connection)
+    await capture_edit(bot, storage, settings, message, connection, old)
 
     prefs = await storage.get_prefs(connection.owner_id)
     if not prefs.notify_edited:
@@ -118,7 +118,7 @@ async def on_deleted_business_messages(
         return
 
     prefs = await storage.get_prefs(connection.owner_id)
-    snapshots = await storage.pop_snapshots(
+    snapshots = await storage.mark_deleted(
         connection.connection_id, event.chat.id, list(event.message_ids)
     )
     if not prefs.notify_deleted:
@@ -229,6 +229,46 @@ async def _maybe_rescue_one_time(
         log.exception("rescue: cache_to_disk raised")
         file_path = None
     log.info("rescue: cache_to_disk -> %s", file_path)
+
+    if file_path is not None:
+        # The original message usually already has its own snapshot (from
+        # on_business_message, when it first arrived) — patch the cached
+        # copy onto it so the backup viewer can still show the file once the
+        # self-destructing file_id itself stops working.
+        #
+        # Keyed by file_unique_id, not message_id: for view-once media,
+        # Telegram's embedded reply_to_message carries a message_id that
+        # does not match the id the original was actually stored under
+        # (confirmed by testing — looks like a placeholder), while
+        # file_unique_id, tied to the file itself, still does.
+        affected = await storage.set_file_path_by_unique_id(
+            connection.connection_id, message.chat.id, media.file_unique_id, file_path
+        )
+        if affected == 0:
+            # Fallback for the ordinary (non-view-once) case, where the
+            # embedded id has always matched.
+            affected = await storage.set_snapshot_file_path(
+                connection.connection_id, message.chat.id, original.message_id, file_path
+            )
+        if affected == 0:
+            # True view-once content, it turns out, is never delivered to
+            # the bot as its own business_message update at all — the
+            # embedded copy inside this reply is the only trace of it that
+            # ever reaches us. Nothing to patch; store it from scratch.
+            rescued = build_snapshot(original, connection)
+            rescued.file_path = file_path
+            rescued.is_view_once = True
+            await storage.put_snapshot(rescued)
+            await storage.upsert_peer(
+                connection.connection_id, message.chat.id, chat_title(original.chat)
+            )
+            affected = 1
+        log.info(
+            "rescue: file_path patch affected %d row(s) "
+            "(connection=%s chat=%s file_unique_id=%s embedded_message_id=%s)",
+            affected, connection.connection_id, message.chat.id,
+            media.file_unique_id, original.message_id,
+        )
 
     card = once_card(original, prefs.language, media.kind)
     caption = card if len(card) <= CAPTION_LIMIT else None

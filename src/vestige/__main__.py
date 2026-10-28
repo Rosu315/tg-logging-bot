@@ -18,16 +18,26 @@ from .handlers import build_router
 from .janitor import run_janitor
 from .middlewares import DependenciesMiddleware
 from .storage import Storage
+from .web import run_web
 
 log = logging.getLogger("vestige")
 
 COMMANDS = [
     BotCommand(command="start", description="Как подключить бота"),
+    BotCommand(command="backup", description="Открыть веб-бэкап переписок"),
     BotCommand(command="settings", description="Настройки уведомлений"),
     BotCommand(command="status", description="Состояние подключения"),
     BotCommand(command="purge", description="Стереть сохранённые снимки"),
     BotCommand(command="help", description="Справка"),
 ]
+
+
+def _log_background_failure(name: str, task: asyncio.Task[None]) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        log.error("background task %r died", name, exc_info=exc)
 
 
 def build_dispatcher(storage: Storage, settings: Settings) -> Dispatcher:
@@ -62,6 +72,9 @@ async def main() -> None:
     dispatcher = build_dispatcher(storage, settings)
 
     janitor = asyncio.create_task(run_janitor(storage, settings))
+    web_server = asyncio.create_task(run_web(storage, settings, bot))
+    janitor.add_done_callback(lambda t: _log_background_failure("janitor", t))
+    web_server.add_done_callback(lambda t: _log_background_failure("web_server", t))
     try:
         await bot.set_my_commands(COMMANDS)
         me = await bot.me()
@@ -72,8 +85,11 @@ async def main() -> None:
         )
     finally:
         janitor.cancel()
+        web_server.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await janitor
+        with contextlib.suppress(asyncio.CancelledError):
+            await web_server
         await storage.close()
         await bot.session.close()
 

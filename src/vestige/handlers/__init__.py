@@ -2,7 +2,7 @@
 
 from aiogram import Router
 
-from . import admin, business, common, settings
+from . import admin, backup, business, common, settings
 
 
 def build_router() -> Router:
@@ -10,6 +10,7 @@ def build_router() -> Router:
     # settings first: it claims the `?start=settings` deep link before /start does
     router.include_router(settings.router)
     router.include_router(admin.router)
+    router.include_router(backup.router)
     router.include_router(common.router)
     router.include_router(business.router)
     return router
