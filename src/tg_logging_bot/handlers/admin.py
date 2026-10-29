@@ -41,9 +41,7 @@ ADMIN_COMMANDS = [
 
 async def ensure_admin_menu(bot: Bot, chat_id: int) -> None:
     base = await bot.get_my_commands()
-    await bot.set_my_commands(
-        [*base, *ADMIN_COMMANDS], scope=BotCommandScopeChat(chat_id=chat_id)
-    )
+    await bot.set_my_commands([*base, *ADMIN_COMMANDS], scope=BotCommandScopeChat(chat_id=chat_id))
 
 
 async def is_authorized(storage: Storage, settings: Settings, username: str | None) -> bool:
@@ -78,7 +76,9 @@ async def cmd_users(message: Message, bot: Bot, storage: Storage, settings: Sett
     await ensure_admin_menu(bot, message.chat.id)
     prefs = await storage.get_prefs(message.chat.id)
     usernames = await storage.list_allowed()
-    await message.answer(_users_body(prefs.language, usernames), reply_markup=_users_keyboard(usernames))
+    await message.answer(
+        _users_body(prefs.language, usernames), reply_markup=_users_keyboard(usernames)
+    )
 
 
 @router.message(Command("allow"))

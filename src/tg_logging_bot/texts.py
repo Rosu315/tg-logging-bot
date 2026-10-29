@@ -181,8 +181,7 @@ EN: dict[str, str] = {
     ),
     "backup_button": "🌐 Open backup",
     "backup_not_configured": (
-        "⚠️ The web backup isn't configured: the bot's owner needs to set "
-        "BACKUP_PUBLIC_URL in .env."
+        "⚠️ The web backup isn't configured: the bot's owner needs to set BACKUP_PUBLIC_URL in .env."
     ),
 }
 

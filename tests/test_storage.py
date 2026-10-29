@@ -88,6 +88,18 @@ async def test_set_snapshot_file_path_patches_existing_row(storage: Storage) -> 
     stored = await storage.get_snapshot("conn-1", 100, 1)
     assert stored is not None
     assert stored.file_path == "/tmp/rescued.jpg"
+    # Ordinary media rescued via capture_any_media, not real one-time content:
+    # must not come out tagged view-once.
+    assert stored.is_view_once is False
+
+
+async def test_set_snapshot_file_path_can_mark_view_once(storage: Storage) -> None:
+    await storage.put_snapshot(make_snapshot(1, media_type="voice"))
+    await storage.set_snapshot_file_path("conn-1", 100, 1, "/tmp/rescued.ogg", mark_view_once=True)
+
+    stored = await storage.get_snapshot("conn-1", 100, 1)
+    assert stored is not None
+    assert stored.is_view_once is True
 
 
 async def test_set_snapshot_file_path_mismatched_id_is_a_silent_no_op(storage: Storage) -> None:
@@ -103,17 +115,16 @@ async def test_set_snapshot_file_path_mismatched_id_is_a_silent_no_op(storage: S
 async def test_set_file_path_by_unique_id_ignores_mismatched_message_id(storage: Storage) -> None:
     # Simulates the view-once quirk: the real snapshot sits under message_id
     # 1, but the rescue only has a (correct) file_unique_id to go on.
-    await storage.put_snapshot(
-        make_snapshot(1, media_type="photo", file_unique_id="uniq-1")
-    )
+    await storage.put_snapshot(make_snapshot(1, media_type="photo", file_unique_id="uniq-1"))
     affected = await storage.set_file_path_by_unique_id(
-        "conn-1", 100, "uniq-1", "/tmp/rescued.jpg"
+        "conn-1", 100, "uniq-1", "/tmp/rescued.jpg", mark_view_once=True
     )
     assert affected == 1
 
     stored = await storage.get_snapshot("conn-1", 100, 1)
     assert stored is not None
     assert stored.file_path == "/tmp/rescued.jpg"
+    assert stored.is_view_once is True
 
 
 async def test_peer_title_prefers_peers_table_over_legacy_fallback(storage: Storage) -> None:

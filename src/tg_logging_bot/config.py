@@ -20,9 +20,9 @@ class Settings(BaseSettings):
         None,
         alias="API_BASE_URL",
         description="Reverse-proxy base URL in front of api.telegram.org "
-                    "(e.g. a Cloudflare Worker), used when api.telegram.org "
-                    "is unreachable directly. Leave unset to talk to Telegram "
-                    "directly.",
+        "(e.g. a Cloudflare Worker), used when api.telegram.org "
+        "is unreachable directly. Leave unset to talk to Telegram "
+        "directly.",
     )
 
     db_path: Path = Field(Path("data/bot.db"), alias="DB_PATH")
@@ -40,16 +40,16 @@ class Settings(BaseSettings):
         "127.0.0.1",
         alias="WEB_HOST",
         description="Bind address for the backup-viewer web server. Keep this "
-                    "on loopback — a tunnel (e.g. cloudflared) is what exposes "
-                    "it, not this process.",
+        "on loopback — a tunnel (e.g. cloudflared) is what exposes "
+        "it, not this process.",
     )
     web_port: int = Field(8088, alias="WEB_PORT")
     backup_public_url: str | None = Field(
         None,
         alias="BACKUP_PUBLIC_URL",
         description="Public HTTPS origin the /backup link is built against "
-                    "(e.g. a cloudflared tunnel in front of WEB_HOST:WEB_PORT). "
-                    "/backup refuses to work without it.",
+        "(e.g. a cloudflared tunnel in front of WEB_HOST:WEB_PORT). "
+        "/backup refuses to work without it.",
     )
     backup_link_ttl_minutes: int = Field(
         30,
@@ -61,15 +61,15 @@ class Settings(BaseSettings):
         "your_username",
         alias="ALLOWED_USERNAMES",
         description="Startup seed for the connection allowlist (comma/space "
-                    "separated, without @). Only used to populate an empty "
-                    "allowlist on first run; after that it lives in the "
-                    "database and is managed via /users, /allow, /deny.",
+        "separated, without @). Only used to populate an empty "
+        "allowlist on first run; after that it lives in the "
+        "database and is managed via /users, /allow, /deny.",
     )
     admin_username: str = Field(
         "your_username",
         alias="ADMIN_USERNAME",
         description="The only Telegram @username allowed to manage the "
-                    "connection allowlist (/users, /allow, /deny).",
+        "connection allowlist (/users, /allow, /deny).",
     )
 
     @property
@@ -82,7 +82,9 @@ class Settings(BaseSettings):
         return frozenset(u.lstrip("@").lower() for u in raw if u.lstrip("@"))
 
     def is_admin(self, username: str | None) -> bool:
-        return bool(username) and username.lower() == self.admin_username.lower()
+        if username is None:
+            return False
+        return username.lower() == self.admin_username.lower()
 
     def ensure_dirs(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

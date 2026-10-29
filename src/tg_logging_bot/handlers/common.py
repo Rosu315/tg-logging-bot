@@ -6,10 +6,10 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
-from .admin import ensure_admin_menu, is_authorized
 from ..config import Settings
 from ..storage import Storage
 from ..texts import t
+from .admin import ensure_admin_menu, is_authorized
 
 router = Router(name="common")
 router.message.filter(F.chat.type == "private")

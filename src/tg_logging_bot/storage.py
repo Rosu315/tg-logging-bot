@@ -246,9 +246,7 @@ class Storage:
         an admin emptying the list on purpose (/deny-ing everyone) must stay
         empty across restarts, not get the .env default resurrected into it.
         """
-        async with self.db.execute(
-            "SELECT 1 FROM meta WHERE key = 'allowlist_seeded'"
-        ) as cursor:
+        async with self.db.execute("SELECT 1 FROM meta WHERE key = 'allowlist_seeded'") as cursor:
             if await cursor.fetchone() is not None:
                 return
         now = int(time.time())
@@ -263,9 +261,7 @@ class Storage:
         await self.db.commit()
 
     async def list_allowed(self) -> list[str]:
-        async with self.db.execute(
-            "SELECT username FROM allowlist ORDER BY username"
-        ) as cursor:
+        async with self.db.execute("SELECT username FROM allowlist ORDER BY username") as cursor:
             rows = await cursor.fetchall()
         return [row["username"] for row in rows]
 
@@ -392,18 +388,29 @@ class Storage:
         await self.db.commit()
 
     async def set_snapshot_file_path(
-        self, connection_id: str, chat_id: int, message_id: int, file_path: str
+        self,
+        connection_id: str,
+        chat_id: int,
+        message_id: int,
+        file_path: str,
+        *,
+        mark_view_once: bool = False,
     ) -> int:
         """Attach a locally-cached copy to an already-stored snapshot.
 
-        Used for rescued view-once media: the file is pulled to disk the
-        moment the owner replies to it, after the snapshot row already
-        exists, so the rescue has to patch the row rather than insert one.
-        Returns the number of rows actually updated (0 or 1), so the caller
-        can tell a real patch apart from a silent no-op on a mismatched id.
+        Used for rescued media: the file is pulled to disk the moment the
+        owner replies to it, after the snapshot row already exists, so the
+        rescue has to patch the row rather than insert one. ``mark_view_once``
+        should only be true when the content was actually detected as
+        one-time — a reply-triggered rescue also fires for ordinary media
+        when the owner has ``capture_any_media`` on, and that must not be
+        tagged view-once. Returns the number of rows actually updated (0 or
+        1), so the caller can tell a real patch apart from a silent no-op on
+        a mismatched id.
         """
+        set_clause = "file_path = ?" + (", is_view_once = 1" if mark_view_once else "")
         cursor = await self.db.execute(
-            "UPDATE snapshots SET file_path = ?, is_view_once = 1 "
+            f"UPDATE snapshots SET {set_clause} "
             "WHERE connection_id = ? AND chat_id = ? AND message_id = ?",
             (file_path, connection_id, chat_id, message_id),
         )
@@ -411,7 +418,13 @@ class Storage:
         return cursor.rowcount
 
     async def set_file_path_by_unique_id(
-        self, connection_id: str, chat_id: int, file_unique_id: str, file_path: str
+        self,
+        connection_id: str,
+        chat_id: int,
+        file_unique_id: str,
+        file_path: str,
+        *,
+        mark_view_once: bool = False,
     ) -> int:
         """Like ``set_snapshot_file_path``, but keyed by ``file_unique_id``.
 
@@ -419,10 +432,12 @@ class Storage:
         a ``message_id`` that does *not* match the id the original snapshot
         was actually stored under (apparently a placeholder, not the real
         one) — but ``file_unique_id``, derived from the file itself, still
-        does. This is the reliable way to find that row again.
+        does. This is the reliable way to find that row again. See
+        ``set_snapshot_file_path`` for what ``mark_view_once`` means.
         """
+        set_clause = "file_path = ?" + (", is_view_once = 1" if mark_view_once else "")
         cursor = await self.db.execute(
-            "UPDATE snapshots SET file_path = ?, is_view_once = 1 "
+            f"UPDATE snapshots SET {set_clause} "
             "WHERE connection_id = ? AND chat_id = ? AND file_unique_id = ?",
             (file_path, connection_id, chat_id, file_unique_id),
         )
@@ -499,9 +514,7 @@ class Storage:
     async def get_or_create_web_secret(self) -> str:
         """The HMAC key backup links are signed with, generated once and kept
         in ``meta`` so it survives restarts without touching ``.env``."""
-        async with self.db.execute(
-            "SELECT value FROM meta WHERE key = 'web_secret'"
-        ) as cursor:
+        async with self.db.execute("SELECT value FROM meta WHERE key = 'web_secret'") as cursor:
             row = await cursor.fetchone()
         if row is not None:
             return row["value"]
@@ -510,9 +523,7 @@ class Storage:
             (secrets.token_hex(32),),
         )
         await self.db.commit()
-        async with self.db.execute(
-            "SELECT value FROM meta WHERE key = 'web_secret'"
-        ) as cursor:
+        async with self.db.execute("SELECT value FROM meta WHERE key = 'web_secret'") as cursor:
             row = await cursor.fetchone()
         assert row is not None  # just inserted (or raced with another writer inserting it)
         return row["value"]

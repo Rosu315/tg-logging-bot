@@ -241,10 +241,7 @@ def render_chat_list(chats: list[dict], token: str) -> str:
     else:
         items = []
         for chat in chats:
-            href = (
-                f"/chat/{quote(chat['connection_id'])}/{chat['chat_id']}"
-                f"?token={quote(token)}"
-            )
+            href = f"/chat/{quote(chat['connection_id'])}/{chat['chat_id']}?token={quote(token)}"
             items.append(
                 f"<a class='chat-row' href='{href}'>"
                 f"<div class='avatar'>{esc(_initial(chat['title']))}</div>"
@@ -288,8 +285,10 @@ def render_chat(
 
         last_date: str | None = None
         for snap in snapshots:
-            day = datetime.fromtimestamp(snap.sent_at, tz=timezone.utc).astimezone().strftime(
-                "%d.%m.%Y"
+            day = (
+                datetime.fromtimestamp(snap.sent_at, tz=timezone.utc)
+                .astimezone()
+                .strftime("%d.%m.%Y")
             )
             if day != last_date:
                 parts.append(f"<div class='date-sep'>{day}</div>")

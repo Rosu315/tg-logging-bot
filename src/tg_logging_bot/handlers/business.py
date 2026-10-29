@@ -58,7 +58,8 @@ async def on_connection(
     if not is_allowed:
         log.warning(
             "rejected business connection from unauthorized user @%s (id=%s)",
-            event.user.username, event.user.id,
+            event.user.username,
+            event.user.id,
         )
         await bot.send_message(connection.owner_chat_id, t(prefs.language, "not_authorized"))
         return
@@ -148,7 +149,8 @@ async def _resolve(storage: Storage, connection_id: str | None) -> Connection | 
     if not await storage.is_allowed(connection.owner_username):
         log.warning(
             "ignoring update from connection %s: @%s is no longer in the allowlist",
-            connection_id, connection.owner_username,
+            connection_id,
+            connection.owner_username,
         )
         return None
     return connection
@@ -198,7 +200,9 @@ async def _maybe_rescue_one_time(
 
     media = extract_media(original)
     if media is None:
-        log.info("rescue: no extractable media on original (content_type=%s)", original.content_type)
+        log.info(
+            "rescue: no extractable media on original (content_type=%s)", original.content_type
+        )
         return
     if original.from_user and original.from_user.id == connection.owner_id:
         log.info("rescue: original is the owner's own file, skipping")
@@ -211,7 +215,9 @@ async def _maybe_rescue_one_time(
     one_time = is_one_time(original)
     log.info(
         "rescue: media=%s one_time_detected=%s capture_any_media=%s",
-        media.kind, one_time, prefs.capture_any_media,
+        media.kind,
+        one_time,
+        prefs.capture_any_media,
     )
     if not (one_time or prefs.capture_any_media):
         log.info("rescue: not flagged one-time and capture_any_media is off, skipping")
@@ -242,13 +248,21 @@ async def _maybe_rescue_one_time(
         # (confirmed by testing — looks like a placeholder), while
         # file_unique_id, tied to the file itself, still does.
         affected = await storage.set_file_path_by_unique_id(
-            connection.connection_id, message.chat.id, media.file_unique_id, file_path
+            connection.connection_id,
+            message.chat.id,
+            media.file_unique_id,
+            file_path,
+            mark_view_once=one_time,
         )
         if affected == 0:
             # Fallback for the ordinary (non-view-once) case, where the
             # embedded id has always matched.
             affected = await storage.set_snapshot_file_path(
-                connection.connection_id, message.chat.id, original.message_id, file_path
+                connection.connection_id,
+                message.chat.id,
+                original.message_id,
+                file_path,
+                mark_view_once=one_time,
             )
         if affected == 0:
             # True view-once content, it turns out, is never delivered to
@@ -257,7 +271,7 @@ async def _maybe_rescue_one_time(
             # ever reaches us. Nothing to patch; store it from scratch.
             rescued = build_snapshot(original, connection)
             rescued.file_path = file_path
-            rescued.is_view_once = True
+            rescued.is_view_once = one_time
             await storage.put_snapshot(rescued)
             await storage.upsert_peer(
                 connection.connection_id, message.chat.id, chat_title(original.chat)
@@ -266,8 +280,11 @@ async def _maybe_rescue_one_time(
         log.info(
             "rescue: file_path patch affected %d row(s) "
             "(connection=%s chat=%s file_unique_id=%s embedded_message_id=%s)",
-            affected, connection.connection_id, message.chat.id,
-            media.file_unique_id, original.message_id,
+            affected,
+            connection.connection_id,
+            message.chat.id,
+            media.file_unique_id,
+            original.message_id,
         )
 
     card = once_card(original, prefs.language, media.kind)

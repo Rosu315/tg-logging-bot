@@ -10,10 +10,10 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from .admin import is_authorized
 from ..config import Settings
 from ..storage import PREF_KEYS, Prefs, Storage
 from ..texts import next_language, t
+from .admin import is_authorized
 
 router = Router(name="settings")
 
