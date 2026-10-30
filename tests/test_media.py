@@ -4,10 +4,38 @@ from datetime import datetime, timezone
 
 from aiogram.types import Chat, Message, PhotoSize, Voice
 
-from tg_logging_bot.media import extract_media, is_one_time
+from tg_logging_bot.media import extract_media, is_one_time, send_media
 
 CHAT = Chat(id=100, type="private", first_name="Полина")
 NOW = datetime.now(tz=timezone.utc)
+
+
+class FakeBot:
+    """Just enough of aiogram's Bot for send_media to drive: records calls."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int, str, dict]] = []
+
+    async def send_video_note(self, chat_id: int, file_id: str, **kwargs) -> Message:
+        self.calls.append(("send_video_note", chat_id, file_id, kwargs))
+        return Message(message_id=99, date=NOW, chat=CHAT)
+
+    async def send_photo(self, chat_id: int, file_id: str, **kwargs) -> Message:
+        self.calls.append(("send_photo", chat_id, file_id, kwargs))
+        return Message(message_id=99, date=NOW, chat=CHAT)
+
+    async def send_message(self, chat_id: int, text: str, **kwargs) -> Message:
+        self.calls.append(("send_message", chat_id, text, kwargs))
+        return Message(message_id=100, date=NOW, chat=CHAT)
+
+    def __getattr__(self, name: str):
+        # media.py builds its senders dict eagerly, so every send_* method
+        # must resolve even for kinds a given test doesn't exercise.
+        async def _unused(chat_id: int, file_id: str, **kwargs) -> Message:
+            self.calls.append((name, chat_id, file_id, kwargs))
+            return Message(message_id=99, date=NOW, chat=CHAT)
+
+        return _unused
 
 
 def photo_message(**extra) -> Message:
@@ -63,3 +91,27 @@ def test_ttl_seconds_marks_one_time() -> None:
 
 def test_zero_ttl_is_not_one_time() -> None:
     assert is_one_time(photo_message(ttl_seconds=0)) is False
+
+
+async def test_send_media_follows_up_caption_for_video_note() -> None:
+    # send_video_note has no caption parameter on Telegram's side — the
+    # caption must still reach the owner, as a separate message.
+    bot = FakeBot()
+    sent = await send_media(
+        bot, 100, kind="video_note", file_id="vn1", file_path=None, caption="<b>card</b>"
+    )
+    assert sent is not None
+    kinds = [call[0] for call in bot.calls]
+    assert kinds == ["send_video_note", "send_message"]
+    assert "caption" not in bot.calls[0][3]
+    assert bot.calls[1][2] == "<b>card</b>"
+
+
+async def test_send_media_keeps_native_caption_for_photo() -> None:
+    bot = FakeBot()
+    sent = await send_media(
+        bot, 100, kind="photo", file_id="p1", file_path=None, caption="<b>card</b>"
+    )
+    assert sent is not None
+    assert [call[0] for call in bot.calls] == ["send_photo"]
+    assert bot.calls[0][3]["caption"] == "<b>card</b>"

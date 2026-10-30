@@ -287,7 +287,7 @@ async def _maybe_rescue_one_time(
             original.message_id,
         )
 
-    card = once_card(original, prefs.language, media.kind)
+    card = once_card(original, prefs.language, media.kind, one_time=one_time)
     caption = card if len(card) <= CAPTION_LIMIT else None
     sent = await send_media(
         bot,

@@ -76,3 +76,12 @@ def test_once_card_mentions_the_media_kind() -> None:
     assert "Одноразовое сообщение сохранено" in card
     assert "фото" in card
     assert "подпись" in card
+
+
+def test_once_card_does_not_claim_one_time_for_replied_media() -> None:
+    # capture_any_media rescues ordinary media too; the card must not say
+    # "one-time" for something that never was.
+    original = Message(message_id=5, date=NOW, chat=CHAT)
+    card = once_card(original, "ru", "video_note", one_time=False)
+    assert "Одноразовое" not in card
+    assert "Вложение сохранено" in card

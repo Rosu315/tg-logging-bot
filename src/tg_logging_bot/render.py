@@ -130,9 +130,15 @@ def edited_card(old: Snapshot | None, new: Message, language: str) -> str:
     return "\n".join(parts)
 
 
-def once_card(message: Message, language: str, kind: str | None) -> str:
-    """Card attached to a rescued view-once file."""
-    parts = [t(language, "once_header"), ""]
+def once_card(message: Message, language: str, kind: str | None, *, one_time: bool = True) -> str:
+    """Card attached to a rescued file.
+
+    ``one_time=False`` covers the ``capture_any_media`` case: the owner
+    replied to perfectly ordinary media (not flagged one-time by Telegram),
+    and the card must say so — not claim it rescued something self-destructing.
+    """
+    header = "once_header" if one_time else "replied_media_header"
+    parts = [t(language, header), ""]
     parts += _meta_lines(
         language,
         sender=user_title(message.from_user),

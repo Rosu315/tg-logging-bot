@@ -135,18 +135,25 @@ async def send_media(
     supports_caption = kind not in {"video_note", "sticker"}
     kwargs: dict[str, Any] = {"caption": caption, "parse_mode": "HTML"} if supports_caption else {}
 
+    sent: Message | None = None
     if file_id:
         try:
-            return await sender(chat_id, file_id, **kwargs)  # type: ignore[operator]
+            sent = await sender(chat_id, file_id, **kwargs)  # type: ignore[operator]
         except Exception as err:  # noqa: BLE001
             log.warning("re-sending by file_id failed (%s), falling back to disk: %s", kind, err)
 
-    if file_path and Path(file_path).exists():
+    if sent is None and file_path and Path(file_path).exists():
         path = Path(file_path)
         payload = BufferedInputFile(await asyncio.to_thread(path.read_bytes), filename=path.name)
         try:
-            return await sender(chat_id, payload, **kwargs)  # type: ignore[operator]
+            sent = await sender(chat_id, payload, **kwargs)  # type: ignore[operator]
         except Exception:
             log.exception("re-sending cached file failed (%s)", kind)
 
-    return None
+    # Telegram silently has no caption field for these kinds — the caption
+    # kwarg above was never sent, so without this it just vanishes instead
+    # of reaching the owner at all.
+    if sent is not None and caption and not supports_caption:
+        await bot.send_message(chat_id, caption, parse_mode="HTML")
+
+    return sent
