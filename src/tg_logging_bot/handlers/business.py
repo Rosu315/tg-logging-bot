@@ -10,6 +10,7 @@ Four updates matter here:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from aiogram import Bot, Router
@@ -17,7 +18,7 @@ from aiogram.types import BusinessConnection, BusinessMessagesDeleted, Message
 
 from ..capture import build_snapshot, capture_edit, capture_message
 from ..config import Settings
-from ..media import cache_to_disk, extract_media, is_one_time, send_media
+from ..media import cache_to_disk, extract_media, is_one_time, send_media, supports_caption
 from ..render import chat_title, deleted_card, edited_card, once_card
 from ..storage import Connection, Snapshot, Storage
 from ..texts import t
@@ -164,7 +165,7 @@ async def _deliver(
 
     if snapshot.media_type:
         caption = card if len(card) <= CAPTION_LIMIT else None
-        sent = await send_media(
+        sent, _ = await send_media(
             bot,
             chat_id,
             kind=snapshot.media_type,
@@ -236,6 +237,30 @@ async def _maybe_rescue_one_time(
         file_path = None
     log.info("rescue: cache_to_disk -> %s", file_path)
 
+    # Telegram gives no documented, reliable flag for "this was actually
+    # protected/self-destructing content" ahead of time — is_one_time()
+    # above is best-effort and empirically never fires on real traffic.
+    # The one signal that *does* hold up: Telegram refuses a file_id resend
+    # for genuinely protected media ("can't use file of type
+    # SelfDestructingPhoto as Photo"), while ordinary media resends fine.
+    # So the delivery attempt doubles as the detector — caption is held
+    # back until we know whether this is worth telling the owner about.
+    sent, file_id_rejected = await send_media(
+        bot,
+        connection.owner_chat_id,
+        kind=media.kind,
+        file_id=media.file_id,
+        file_path=file_path,
+        caption=None,
+    )
+    really_one_time = one_time or file_id_rejected
+    log.info(
+        "rescue: one_time_hint=%s file_id_rejected=%s really_one_time=%s",
+        one_time,
+        file_id_rejected,
+        really_one_time,
+    )
+
     if file_path is not None:
         # The original message usually already has its own snapshot (from
         # on_business_message, when it first arrived) — patch the cached
@@ -252,7 +277,7 @@ async def _maybe_rescue_one_time(
             message.chat.id,
             media.file_unique_id,
             file_path,
-            mark_view_once=one_time,
+            mark_view_once=really_one_time,
         )
         if affected == 0:
             # Fallback for the ordinary (non-view-once) case, where the
@@ -262,7 +287,7 @@ async def _maybe_rescue_one_time(
                 message.chat.id,
                 original.message_id,
                 file_path,
-                mark_view_once=one_time,
+                mark_view_once=really_one_time,
             )
         if affected == 0:
             # True view-once content, it turns out, is never delivered to
@@ -271,7 +296,7 @@ async def _maybe_rescue_one_time(
             # ever reaches us. Nothing to patch; store it from scratch.
             rescued = build_snapshot(original, connection)
             rescued.file_path = file_path
-            rescued.is_view_once = one_time
+            rescued.is_view_once = really_one_time
             await storage.put_snapshot(rescued)
             await storage.upsert_peer(
                 connection.connection_id, message.chat.id, chat_title(original.chat)
@@ -287,28 +312,31 @@ async def _maybe_rescue_one_time(
             original.message_id,
         )
 
-    if not one_time:
-        # capture_any_media just wants this in the archive, quietly — the
-        # owner didn't ask to be told about every ordinary photo they
-        # replied to. Genuine one-time rescues below still get a heads-up,
-        # since that content would otherwise vanish without a trace.
+    if not really_one_time:
+        # Ordinary media: capture_any_media only wants it archived, quietly.
+        # The probe delivery above isn't wanted in the owner's DM — undo it.
+        if sent is not None:
+            with contextlib.suppress(Exception):
+                await bot.delete_message(connection.owner_chat_id, sent.message_id)
         return
 
     card = once_card(original, prefs.language, media.kind)
-    caption = card if len(card) <= CAPTION_LIMIT else None
-    sent = await send_media(
-        bot,
-        connection.owner_chat_id,
-        kind=media.kind,
-        file_id=media.file_id,
-        file_path=file_path,
-        caption=caption,
-    )
     if sent is None:
         await bot.send_message(
             connection.owner_chat_id,
             f"{card}\n\n{t(prefs.language, 'media_lost')}",
             parse_mode="HTML",
         )
-    elif caption is None:
+    elif supports_caption(media.kind):
+        try:
+            await bot.edit_message_caption(
+                chat_id=connection.owner_chat_id,
+                message_id=sent.message_id,
+                caption=card,
+                parse_mode="HTML",
+            )
+        except Exception:
+            log.exception("rescue: edit_message_caption failed, sending the card separately")
+            await bot.send_message(connection.owner_chat_id, card, parse_mode="HTML")
+    else:
         await bot.send_message(connection.owner_chat_id, card, parse_mode="HTML")

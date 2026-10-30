@@ -97,10 +97,11 @@ async def test_send_media_follows_up_caption_for_video_note() -> None:
     # send_video_note has no caption parameter on Telegram's side — the
     # caption must still reach the owner, as a separate message.
     bot = FakeBot()
-    sent = await send_media(
+    sent, file_id_rejected = await send_media(
         bot, 100, kind="video_note", file_id="vn1", file_path=None, caption="<b>card</b>"
     )
     assert sent is not None
+    assert file_id_rejected is False
     kinds = [call[0] for call in bot.calls]
     assert kinds == ["send_video_note", "send_message"]
     assert "caption" not in bot.calls[0][3]
@@ -109,9 +110,45 @@ async def test_send_media_follows_up_caption_for_video_note() -> None:
 
 async def test_send_media_keeps_native_caption_for_photo() -> None:
     bot = FakeBot()
-    sent = await send_media(
+    sent, file_id_rejected = await send_media(
         bot, 100, kind="photo", file_id="p1", file_path=None, caption="<b>card</b>"
     )
     assert sent is not None
+    assert file_id_rejected is False
     assert [call[0] for call in bot.calls] == ["send_photo"]
     assert bot.calls[0][3]["caption"] == "<b>card</b>"
+
+
+async def test_send_media_reports_file_id_rejection() -> None:
+    # The only empirically reliable signal for "this was actually
+    # protected/self-destructing content": Telegram refuses the file_id
+    # resend outright.
+    class RejectingBot(FakeBot):
+        async def send_photo(self, chat_id: int, file_id, **kwargs) -> Message:
+            if isinstance(file_id, str):
+                raise RuntimeError("can't use file of type SelfDestructingPhoto as Photo")
+            return await super().send_photo(chat_id, file_id, **kwargs)
+
+    bot = RejectingBot()
+    sent, file_id_rejected = await send_media(
+        bot, 100, kind="photo", file_id="bad", file_path=None, caption=None
+    )
+    assert sent is None
+    assert file_id_rejected is True
+
+
+async def test_send_media_rejection_still_falls_back_to_disk(tmp_path) -> None:
+    class RejectingBot(FakeBot):
+        async def send_photo(self, chat_id: int, file_id, **kwargs) -> Message:
+            if isinstance(file_id, str):
+                raise RuntimeError("can't use file of type SelfDestructingPhoto as Photo")
+            return await super().send_photo(chat_id, file_id, **kwargs)
+
+    cached = tmp_path / "rescued.jpg"
+    cached.write_bytes(b"fake-bytes")
+    bot = RejectingBot()
+    sent, file_id_rejected = await send_media(
+        bot, 100, kind="photo", file_id="bad", file_path=str(cached), caption=None
+    )
+    assert sent is not None
+    assert file_id_rejected is True

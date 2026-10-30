@@ -106,6 +106,14 @@ async def cache_to_disk(bot: Bot, media: MediaRef, media_dir: Path, max_bytes: i
         return None
 
 
+# Telegram's send_video_note and send_sticker take no caption parameter at all.
+NO_CAPTION_KINDS = {"video_note", "sticker"}
+
+
+def supports_caption(kind: str) -> bool:
+    return kind not in NO_CAPTION_KINDS
+
+
 async def send_media(
     bot: Bot,
     chat_id: int,
@@ -114,11 +122,19 @@ async def send_media(
     file_id: str | None,
     file_path: str | None,
     caption: str | None = None,
-) -> Message | None:
+) -> tuple[Message | None, bool]:
     """Re-send saved media to the owner.
 
-    Tries the original ``file_id`` first — it stays valid for a while even after
-    the message itself is gone — and falls back to the locally cached copy.
+    Tries the original ``file_id`` first — it stays valid for a while even
+    after the message itself is gone — and falls back to the locally
+    cached copy.
+
+    Returns ``(sent_message, file_id_rejected)``. ``file_id_rejected`` is
+    true when Telegram refused the file_id resend outright — empirically,
+    the only signal available anywhere for "this was actually protected
+    content" (Telegram raises e.g. "can't use file of type
+    SelfDestructingPhoto as Photo"; the Bot API has no documented flag for
+    it). True regardless of whether the disk fallback then succeeded.
     """
     senders = {
         "photo": bot.send_photo,
@@ -131,15 +147,16 @@ async def send_media(
         "sticker": bot.send_sticker,
     }
     sender = senders.get(kind, bot.send_document)
-    # send_video_note and send_sticker do not accept a caption.
-    supports_caption = kind not in {"video_note", "sticker"}
-    kwargs: dict[str, Any] = {"caption": caption, "parse_mode": "HTML"} if supports_caption else {}
+    caption_supported = supports_caption(kind)
+    kwargs: dict[str, Any] = {"caption": caption, "parse_mode": "HTML"} if caption_supported else {}
 
     sent: Message | None = None
+    file_id_rejected = False
     if file_id:
         try:
             sent = await sender(chat_id, file_id, **kwargs)  # type: ignore[operator]
         except Exception as err:  # noqa: BLE001
+            file_id_rejected = True
             log.warning("re-sending by file_id failed (%s), falling back to disk: %s", kind, err)
 
     if sent is None and file_path and Path(file_path).exists():
@@ -153,7 +170,7 @@ async def send_media(
     # Telegram silently has no caption field for these kinds — the caption
     # kwarg above was never sent, so without this it just vanishes instead
     # of reaching the owner at all.
-    if sent is not None and caption and not supports_caption:
+    if sent is not None and caption and not caption_supported:
         await bot.send_message(chat_id, caption, parse_mode="HTML")
 
-    return sent
+    return sent, file_id_rejected
