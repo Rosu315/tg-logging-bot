@@ -287,7 +287,14 @@ async def _maybe_rescue_one_time(
             original.message_id,
         )
 
-    card = once_card(original, prefs.language, media.kind, one_time=one_time)
+    if not one_time:
+        # capture_any_media just wants this in the archive, quietly — the
+        # owner didn't ask to be told about every ordinary photo they
+        # replied to. Genuine one-time rescues below still get a heads-up,
+        # since that content would otherwise vanish without a trace.
+        return
+
+    card = once_card(original, prefs.language, media.kind)
     caption = card if len(card) <= CAPTION_LIMIT else None
     sent = await send_media(
         bot,
